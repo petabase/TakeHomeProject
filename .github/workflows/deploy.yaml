@@ -1,0 +1,35 @@
+name: Sync Deployment Folder to Hugging Face Spaces
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'deployment/**' # Only trigger if files in the deployment folder change
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push Subfolder to HF
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # 1. Initialize a temporary git repo inside the deployment folder
+          cd deployment
+          git init-db || git init
+          
+          # 2. Configure a dummy user for the temporary commit
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+          
+          # 3. Stage and commit the deployment files
+          git add .
+          git commit -m "Deploying latest build from GitHub"
+          
+          # 4. Force push the deployment folder directly to HF Space main branch
+          git push --force https://OttoDC:$HF_TOKEN@huggingface.co/spaces/OttoDC/TTB-Label-Verifier HEAD:main

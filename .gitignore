@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+# TTB Label Verifier — .gitignore
+# ─────────────────────────────────────────────────────────────
+
+# macOS system files — catch in ALL subfolders
+.DS_Store
+**/.DS_Store
+._*
+
+# Environment variables — NEVER commit real keys
+.env
+**/.env
+
+*.sh
+
+# Python
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (frontend tooling if ever added)
+node_modules/
