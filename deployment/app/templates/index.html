@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Verifier — Upload{% endblock %}
+
+{% block extra_styles %}
+.drop-zone {
+  border: 2px dashed #b0bec5;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  color: #888;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-top: 0.5rem;
+}
+.drop-zone:hover { border-color: #1a3a5c; background: #f0f4f8; }
+.drop-zone input[type="file"] {
+  display: none;
+}
+.drop-zone .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.drop-zone .selected-file {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #1a3a5c;
+  font-weight: 500;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+}
+@media (max-width: 540px) { .grid-2 { grid-template-columns: 1fr; } }
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1a3a5c;
+  margin: 1.5rem 0 0.75rem;
+}
+{% endblock %}
+
+{% block content %}
+<form action="/verify" method="post" enctype="multipart/form-data">
+
+  <!-- Image upload -->
+  <div class="card">
+    <h2>📎 Label Image</h2>
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="icon">🖼️</div>
+      <div>Click to select or drag & drop a label image</div>
+      <div class="hint">JPEG or PNG · max 10 MB</div>
+      <div class="selected-file" id="fileLabel"></div>
+      <input type="file" id="fileInput" name="label_image"
+             accept="image/jpeg,image/png" required
+             onchange="document.getElementById('fileLabel').textContent = this.files[0]?.name || ''">
+    </div>
+  </div>
+
+  <!-- Application data -->
+  <div class="card">
+    <h2>📋 Application Data</h2>
+    <p class="hint" style="margin-bottom:1rem">
+      Enter the field values exactly as submitted in the COLA application.
+    </p>
+
+    <div class="grid-2">
+      <div>
+        <label for="brand_name">Brand Name *</label>
+        <input type="text" id="brand_name" name="brand_name"
+               placeholder="e.g. OLD TOM DISTILLERY" required />
+      </div>
+      <div>
+        <label for="class_type">Class / Type *</label>
+        <input type="text" id="class_type" name="class_type"
+               placeholder="e.g. Bourbon Whiskey" required />
+      </div>
+      <div>
+        <label for="abv">Alcohol by Volume *</label>
+        <input type="text" id="abv" name="abv"
+               placeholder="e.g. 40%" required />
+      </div>
+      <div>
+        <label for="net_contents">Net Contents *</label>
+        <input type="text" id="net_contents" name="net_contents"
+               placeholder="e.g. 750 mL" required />
+      </div>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="government_warning" name="government_warning"
+             value="true" checked />
+      <label for="government_warning">
+        Government Warning required on this label
+      </label>
+    </div>
+    <p class="hint">Required for all alcoholic beverages sold in the U.S. (27 CFR 16.21)</p>
+
+  </div>
+
+  <button type="submit" class="btn">
+    🔍 Verify Label
+  </button>
+
+</form>
+
+<script>
+  // Drag and drop support
+  const zone = document.getElementById('dropZone');
+  zone.addEventListener('dragover', e => {
+    e.preventDefault();
+    zone.style.borderColor = '#1a3a5c';
+    zone.style.background = '#f0f4f8';
+  });
+  zone.addEventListener('dragleave', () => {
+    zone.style.borderColor = '';
+    zone.style.background = '';
+  });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.style.borderColor = '';
+    zone.style.background = '';
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      document.getElementById('fileInput').files = e.dataTransfer.files;
+      document.getElementById('fileLabel').textContent = file.name;
+    }
+  });
+</script>
+{% endblock %}
