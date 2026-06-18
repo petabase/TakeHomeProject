@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Verifier — Results{% endblock %}
+
+{% block extra_styles %}
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+@media (max-width: 600px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+.stat-box {
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.stat-num { font-size: 1.6rem; font-weight: 700; }
+.stat-label { font-size: 0.75rem; color: #777; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-pass .stat-num { color: #2e7d32; }
+.stat-fail .stat-num { color: #c62828; }
+.stat-review .stat-num { color: #f57f17; }
+.stat-error .stat-num { color: #616161; }
+
+.status-banner {
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.status-banner-PASS   { background: #e8f5e9; border-left: 5px solid #2e7d32; }
+.status-banner-FAIL   { background: #ffebee; border-left: 5px solid #c62828; }
+.status-banner-REVIEW { background: #fff8e1; border-left: 5px solid #f57f17; }
+.status-icon  { font-size: 2rem; }
+.status-title { font-size: 1.1rem; font-weight: 700; }
+.status-sub   { font-size: 0.82rem; color: #555; margin-top: 2px; }
+
+.batch-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.batch-table th {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  background: #f0f4f8;
+  font-weight: 600;
+  color: #1a3a5c;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+.batch-table td { padding: 0.6rem 0.7rem; border-bottom: 1px solid #eee; vertical-align: top; }
+.status-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status-PASS { background: #e8f5e9; color: #2e7d32; }
+.status-FAIL { background: #ffebee; color: #c62828; }
+.status-NEEDS\ REVIEW { background: #fff8e1; color: #f57f17; }
+.status-ERROR { background: #eceff1; color: #455a64; }
+
+.field-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.field-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  background: #f0f4f8;
+  font-weight: 600;
+  color: #1a3a5c;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+.field-table td { padding: 0.75rem; border-bottom: 1px solid #eee; vertical-align: top; }
+.field-table tr:last-child td { border-bottom: none; }
+
+.pct-bar-wrap { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+.pct-bar-track { flex: 1; height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+.pct-bar-fill { height: 100%; border-radius: 3px; }
+.pct-num { font-size: 0.78rem; font-weight: 600; min-width: 32px; text-align: right; }
+
+.reason-text { font-size: 0.78rem; color: #666; margin-top: 4px; line-height: 1.4; }
+
+.error-list {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-size: 0.8rem;
+  color: #6d5300;
+  margin-bottom: 1.5rem;
+}
+.error-list ul { margin-left: 1rem; margin-top: 0.4rem; }
+
+.export-btn {
+  background: #2e7d32;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.4rem;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.export-btn:hover { background: #256528; }
+{% endblock %}
+
+{% block content %}
+
+{% if csv_errors %}
+<div class="error-list">
+  <strong>⚠️ Notes from this run:</strong>
+  <ul>
+    {% for err in csv_errors %}<li>{{ err }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if summary %}
+
+  {% if is_single %}
+    {# ── Single-label simplified view ───────────────────────────────────── #}
+    {% set item = summary.items[0] %}
+
+    {% if item.error and not item.result %}
+      <div class="card">
+        <div class="error-list" style="color:#c62828; background:#ffebee; border-color:#ef9a9a">
+          <strong>⚠️ Verification error</strong><br>{{ item.error }}
+        </div>
+      </div>
+    {% else %}
+      {% set banner_class = "PASS" if item.status == "PASS" else ("FAIL" if item.status == "FAIL" else "REVIEW") %}
+      <div class="status-banner status-banner-{{ banner_class }}">
+        <div class="status-icon">
+          {% if item.status == "PASS" %}✅{% elif item.status == "FAIL" %}❌{% else %}⚠️{% endif %}
+        </div>
+        <div>
+          <div class="status-title">
+            {{ item.status }} — {{ item.filename }}
+          </div>
+          <div class="status-sub">
+            {% if item.status == "PASS" %}All fields confirmed against application data
+            {% elif item.status == "FAIL" %}One or more fields do not match application data
+            {% else %}Some fields could not be automatically confirmed{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Field-by-field detail</h2>
+        <table class="field-table">
+          <thead>
+            <tr><th>Field</th><th>Expected</th><th>Extracted</th><th>Confidence</th></tr>
+          </thead>
+          <tbody>
+            {% for f in item.result.fields %}
+            <tr>
+              <td><strong>{{ f.field.replace("_", " ").title() }}</strong></td>
+              <td>{{ f.expected[:100] }}{% if f.expected|length > 100 %}…{% endif %}</td>
+              <td>{{ f.extracted[:100] }}{% if f.extracted|length > 100 %}…{% endif %}</td>
+              <td>
+                <div class="pct-bar-wrap">
+                  <div class="pct-bar-track">
+                    <div class="pct-bar-fill" style="width:{{ f.confidence_pct }}%; background:{% if f.confidence_pct >= 85 %}#2e7d32{% elif f.confidence_pct >= 60 %}#f57f17{% else %}#c62828{% endif %}"></div>
+                  </div>
+                  <span class="pct-num">{{ f.confidence_pct }}%</span>
+                </div>
+                <div class="reason-text">{{ f.reason }}</div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+  {% else %}
+    {# ── Batch summary view ─────────────────────────────────────────────── #}
+    <div class="stats-row">
+      <div class="stat-box stat-pass"><div class="stat-num">{{ summary.passed }}</div><div class="stat-label">Passed</div></div>
+      <div class="stat-box stat-fail"><div class="stat-num">{{ summary.failed }}</div><div class="stat-label">Failed</div></div>
+      <div class="stat-box stat-review"><div class="stat-num">{{ summary.needs_review }}</div><div class="stat-label">Needs Review</div></div>
+      <div class="stat-box stat-error"><div class="stat-num">{{ summary.errored }}</div><div class="stat-label">Errors</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Results — {{ summary.total }} label{{ "s" if summary.total != 1 else "" }} processed</h2>
+      <table class="batch-table">
+        <thead>
+          <tr><th>Filename</th><th>Status</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+          {% for item in summary.items %}
+          <tr>
+            <td><strong>{{ item.filename }}</strong></td>
+            <td><span class="status-pill status-{{ item.status }}">{{ item.status }}</span></td>
+            <td>
+              {% if item.error and not item.result %}
+                <span style="color:#c62828">{{ item.error }}</span>
+              {% elif item.result %}
+                {% for f in item.result.fields %}
+                  {% if f.confidence != "confirmed" %}
+                    <div class="reason-text" style="margin-bottom:4px">
+                      <strong>{{ f.field.replace("_", " ").title() }}</strong> ({{ f.confidence_pct }}%): {{ f.reason }}
+                    </div>
+                  {% endif %}
+                {% endfor %}
+                {% if item.status == "PASS" %}
+                  <span style="color:#2e7d32; font-size:0.78rem">All fields confirmed</span>
+                {% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  <form action="/export" method="post" style="margin-top:1rem">
+    <input type="hidden" name="summary_json" value='{{ summary.model_dump_json() }}'>
+    <button type="submit" class="export-btn">⬇️ Export full results as CSV</button>
+  </form>
+
+{% endif %}
+
+<div class="actions" style="margin-top:1.5rem">
+  <a href="/" class="btn-secondary">← Verify Another Label</a>
+</div>
+
+{% endblock %}
