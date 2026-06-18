@@ -1,130 +1,425 @@
 {% extends "base.html" %}
 
-{% block title %}TTB Label Verifier — Upload{% endblock %}
+{% block title %}TTB Label Verifier{% endblock %}
 
 {% block extra_styles %}
 .drop-zone {
   border: 2px dashed #b0bec5;
   border-radius: 8px;
-  padding: 2rem;
+  padding: 1.75rem;
   text-align: center;
   color: #888;
   font-size: 0.9rem;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
-  margin-top: 0.5rem;
 }
 .drop-zone:hover { border-color: #1a3a5c; background: #f0f4f8; }
-.drop-zone input[type="file"] {
-  display: none;
+.drop-zone.drag-over {
+  border-color: #1a3a5c;
+  background: #e8f0f8;
+  border-style: solid;
 }
-.drop-zone .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.drop-zone input[type="file"] { display: none; }
+.drop-zone .icon { font-size: 1.75rem; margin-bottom: 0.4rem; }
 .drop-zone .selected-file {
   margin-top: 0.5rem;
   font-size: 0.8rem;
   color: #1a3a5c;
   font-weight: 500;
 }
-.grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 1rem;
-}
-@media (max-width: 540px) { .grid-2 { grid-template-columns: 1fr; } }
-.section-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.template-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
   color: #1a3a5c;
-  margin: 1.5rem 0 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: #eef3f8;
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  margin-top: 0.6rem;
 }
+.template-link:hover { background: #e2eaf2; }
+.csv-example {
+  background: #f7f9fb;
+  border: 1px solid #dde5ee;
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  color: #444;
+  margin-top: 0.75rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+.limits-box {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-size: 0.8rem;
+  color: #6d5300;
+  margin-top: 1rem;
+}
+.intro-note {
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+.file-list {
+  margin-top: 0.85rem;
+  text-align: left;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: white;
+}
+.file-list-empty {
+  padding: 0.75rem;
+  text-align: center;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.8rem;
+  color: #333;
+}
+.file-row:last-child { border-bottom: none; }
+.file-row .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: left; }
+.file-row .fsize { color: #999; font-size: 0.72rem; margin: 0 8px; white-space: nowrap; }
+.file-row .remove-btn {
+  background: none;
+  border: none;
+  color: #c62828;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 4px;
+  line-height: 1;
+}
+.file-row .remove-btn:hover { color: #8e0000; }
+.file-list-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: #f7f9fb;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.78rem;
+  color: #555;
+}
+.clear-all-btn {
+  background: none;
+  border: none;
+  color: #1a3a5c;
+  font-weight: 600;
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.upload-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.mode-btn {
+  flex: 1;
+  padding: 0.55rem;
+  border: 1.5px solid #d0d7e3;
+  border-radius: 6px;
+  background: white;
+  color: #555;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mode-btn.active { background: #1a3a5c; color: white; border-color: #1a3a5c; }
 {% endblock %}
 
 {% block content %}
+
+<p class="intro-note">
+  Verify one label or up to {{ max_batch }} at once — same form either way.
+  Provide a metadata CSV with the application data already in it (no manual
+  typing) and the matching label image(s) below, either by selecting files
+  directly or uploading a single .zip for large batches.
+</p>
+
 <form action="/verify" method="post" enctype="multipart/form-data">
+
+  <!-- CSV upload -->
+  <div class="card">
+    <h2>📄 Application Metadata (CSV)</h2>
+    <p class="hint" style="margin-bottom:0.5rem">
+      One row per label. The <code>filename</code> column must match an uploaded image exactly.
+    </p>
+
+    <a href="/template.csv" class="template-link">⬇️ Download a 1-row template</a>
+
+    <div class="drop-zone" id="csvDropZone" style="margin-top:0.85rem" onclick="document.getElementById('csvInput').click()">
+      <div class="icon">📄</div>
+      <div>Click or drag & drop your metadata CSV here</div>
+      <div class="selected-file" id="csvLabel"></div>
+      <input type="file" id="csvInput" name="metadata_csv"
+             accept=".csv" required
+             onchange="document.getElementById('csvLabel').textContent = this.files[0]?.name || ''">
+    </div>
+
+    <div class="csv-example">filename,brand_name,class_type,abv,net_contents,government_warning
+label_001.jpg,OLD TOM DISTILLERY,Bourbon Whiskey,40%,750 mL,true</div>
+    <p class="hint" style="margin-top:0.5rem">
+      Required columns: <code>filename, brand_name, class_type, abv, net_contents</code>.
+      <code>government_warning</code> is optional (defaults to true).
+    </p>
+  </div>
 
   <!-- Image upload -->
   <div class="card">
-    <h2>📎 Label Image</h2>
-    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-      <div class="icon">🖼️</div>
-      <div>Click to select or drag & drop a label image</div>
-      <div class="hint">JPEG or PNG · max 10 MB</div>
-      <div class="selected-file" id="fileLabel"></div>
-      <input type="file" id="fileInput" name="label_image"
-             accept="image/jpeg,image/png" required
-             onchange="document.getElementById('fileLabel').textContent = this.files[0]?.name || ''">
-    </div>
-  </div>
-
-  <!-- Application data -->
-  <div class="card">
-    <h2>📋 Application Data</h2>
-    <p class="hint" style="margin-bottom:1rem">
-      Enter the field values exactly as submitted in the COLA application.
+    <h2>🖼️ Label Image(s)</h2>
+    <p class="hint" style="margin-bottom:0.75rem">
+      Each filename must match a row in the CSV above.
     </p>
 
-    <div class="grid-2">
-      <div>
-        <label for="brand_name">Brand Name *</label>
-        <input type="text" id="brand_name" name="brand_name"
-               placeholder="e.g. OLD TOM DISTILLERY" required />
+    <div class="upload-mode-toggle">
+      <button type="button" class="mode-btn active" id="modeMultiBtn"
+              onclick="setUploadMode('multi')">
+        📑 Select files (1–20 labels)
+      </button>
+      <button type="button" class="mode-btn" id="modeZipBtn"
+              onclick="setUploadMode('zip')">
+        🗜️ Upload a .zip (large batches)
+      </button>
+    </div>
+
+    <!-- Multi-file mode -->
+    <div id="multiModePanel">
+      <div class="drop-zone" id="imagesDropZone" onclick="document.getElementById('imagesInput').click()">
+        <div class="icon">🖼️</div>
+        <div>Click or drag & drop label image(s) here — drop more anytime to add to the list</div>
+        <div class="hint">JPEG or PNG · up to {{ max_batch }} files · 10 MB each</div>
+        <input type="file" id="imagesInput"
+               accept="image/jpeg,image/png" multiple
+               style="display:none">
       </div>
-      <div>
-        <label for="class_type">Class / Type *</label>
-        <input type="text" id="class_type" name="class_type"
-               placeholder="e.g. Bourbon Whiskey" required />
+
+      <div class="file-list" id="fileListContainer">
+        <div class="file-list-empty" id="fileListEmpty">No images selected yet</div>
       </div>
-      <div>
-        <label for="abv">Alcohol by Volume *</label>
-        <input type="text" id="abv" name="abv"
-               placeholder="e.g. 40%" required />
-      </div>
-      <div>
-        <label for="net_contents">Net Contents *</label>
-        <input type="text" id="net_contents" name="net_contents"
-               placeholder="e.g. 750 mL" required />
+      <div class="file-list-summary" id="fileListSummary" style="display:none">
+        <span id="fileListCount">0 files</span>
+        <button type="button" class="clear-all-btn" onclick="clearAllFiles()">Clear all</button>
       </div>
     </div>
 
-    <div class="checkbox-row">
-      <input type="checkbox" id="government_warning" name="government_warning"
-             value="true" checked />
-      <label for="government_warning">
-        Government Warning required on this label
-      </label>
+    <!-- Zip mode -->
+    <div id="zipModePanel" style="display:none">
+      <div class="drop-zone" id="zipDropZone" onclick="document.getElementById('zipInput').click()">
+        <div class="icon">🗜️</div>
+        <div>Click or drag & drop a .zip of label images here</div>
+        <div class="hint">All images inside should be JPEG/PNG, filenames matching the CSV · up to {{ max_batch }} images</div>
+        <div class="selected-file" id="zipLabel"></div>
+        <input type="file" id="zipInput" name="label_images_zip"
+               accept=".zip"
+               onchange="document.getElementById('zipLabel').textContent = this.files[0]?.name || ''">
+      </div>
+      <p class="hint" style="margin-top:0.5rem">
+        Zip a folder on Mac by right-clicking it in Finder and choosing
+        "Compress" — nested subfolders inside the zip are fine, only
+        filenames need to match the CSV.
+      </p>
     </div>
-    <p class="hint">Required for all alcoholic beverages sold in the U.S. (27 CFR 16.21)</p>
 
+    <div class="limits-box">
+      ⚠️ Free-tier Gemini API allows 15 requests/minute. Large batches are
+      processed in small concurrent groups and may take a few minutes —
+      please don't close this tab while it runs.
+    </div>
   </div>
 
   <button type="submit" class="btn">
-    🔍 Verify Label
+    🔍 Verify
   </button>
 
 </form>
 
 <script>
-  // Drag and drop support
-  const zone = document.getElementById('dropZone');
-  zone.addEventListener('dragover', e => {
-    e.preventDefault();
-    zone.style.borderColor = '#1a3a5c';
-    zone.style.background = '#f0f4f8';
+  // ── State: accumulated image files for multi-select mode ──────────────────
+  let selectedFiles = [];   // array of File objects, persists across drops/clicks
+  let uploadMode = 'multi'; // 'multi' or 'zip'
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function renderFileList() {
+    const container = document.getElementById('fileListContainer');
+    const empty = document.getElementById('fileListEmpty');
+    const summary = document.getElementById('fileListSummary');
+    const countEl = document.getElementById('fileListCount');
+
+    container.innerHTML = '';
+
+    if (selectedFiles.length === 0) {
+      container.appendChild(empty);
+      summary.style.display = 'none';
+      return;
+    }
+
+    selectedFiles.forEach((file, idx) => {
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML = `
+        <span class="fname">${file.name}</span>
+        <span class="fsize">${formatBytes(file.size)}</span>
+        <button type="button" class="remove-btn" data-idx="${idx}">✕</button>
+      `;
+      row.querySelector('.remove-btn').addEventListener('click', () => removeFile(idx));
+      container.appendChild(row);
+    });
+
+    summary.style.display = 'flex';
+    countEl.textContent = `${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} selected`;
+  }
+
+  function addFiles(newFiles) {
+    const existingKeys = new Set(selectedFiles.map(f => f.name + ':' + f.size));
+    let addedCount = 0;
+    let dupCount = 0;
+
+    Array.from(newFiles).forEach(f => {
+      const isImage = f.type === 'image/jpeg' || f.type === 'image/png' ||
+                      /\.(jpe?g|png)$/i.test(f.name);
+      if (!isImage) return;
+
+      const key = f.name + ':' + f.size;
+      if (existingKeys.has(key)) {
+        dupCount++;
+        return;
+      }
+      existingKeys.add(key);
+      selectedFiles.push(f);
+      addedCount++;
+    });
+
+    renderFileList();
+
+    if (dupCount > 0) {
+      console.log(`Skipped ${dupCount} duplicate file(s) already in the list.`);
+    }
+  }
+
+  function removeFile(idx) {
+    selectedFiles.splice(idx, 1);
+    renderFileList();
+  }
+
+  function clearAllFiles() {
+    selectedFiles = [];
+    renderFileList();
+  }
+
+  function setUploadMode(mode) {
+    uploadMode = mode;
+    document.getElementById('modeMultiBtn').classList.toggle('active', mode === 'multi');
+    document.getElementById('modeZipBtn').classList.toggle('active', mode === 'zip');
+    document.getElementById('multiModePanel').style.display = mode === 'multi' ? 'block' : 'none';
+    document.getElementById('zipModePanel').style.display = mode === 'zip' ? 'block' : 'none';
+  }
+
+  // ── Multi-file input: click-to-browse adds to the accumulated list ───────
+  document.getElementById('imagesInput').addEventListener('change', (e) => {
+    addFiles(e.target.files);
+    e.target.value = ''; // reset so selecting the same file again still fires 'change'
   });
-  zone.addEventListener('dragleave', () => {
-    zone.style.borderColor = '';
-    zone.style.background = '';
+
+  // ── Generic drag-and-drop wiring (visual highlight + dispatch) ───────────
+  function wireDropZone(zoneId, onDropFiles) {
+    const zone = document.getElementById(zoneId);
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      onDropFiles(e.dataTransfer.files);
+    });
+  }
+
+  wireDropZone('imagesDropZone', (files) => addFiles(files));
+
+  wireDropZone('csvDropZone', (files) => {
+    const csvFile = Array.from(files).find(f => f.name.toLowerCase().endsWith('.csv'));
+    if (!csvFile) {
+      document.getElementById('csvLabel').textContent = '⚠️ Dropped file is not a .csv';
+      document.getElementById('csvLabel').style.color = '#c62828';
+      return;
+    }
+    const dt = new DataTransfer();
+    dt.items.add(csvFile);
+    document.getElementById('csvInput').files = dt.files;
+    document.getElementById('csvLabel').style.color = '#1a3a5c';
+    document.getElementById('csvLabel').textContent = csvFile.name;
   });
-  zone.addEventListener('drop', e => {
-    e.preventDefault();
-    zone.style.borderColor = '';
-    zone.style.background = '';
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      document.getElementById('fileInput').files = e.dataTransfer.files;
-      document.getElementById('fileLabel').textContent = file.name;
+
+  wireDropZone('zipDropZone', (files) => {
+    const zipFile = Array.from(files).find(f => f.name.toLowerCase().endsWith('.zip'));
+    if (!zipFile) {
+      document.getElementById('zipLabel').textContent = '⚠️ Dropped file is not a .zip';
+      document.getElementById('zipLabel').style.color = '#c62828';
+      return;
+    }
+    const dt = new DataTransfer();
+    dt.items.add(zipFile);
+    document.getElementById('zipInput').files = dt.files;
+    document.getElementById('zipLabel').style.color = '#1a3a5c';
+    document.getElementById('zipLabel').textContent = zipFile.name;
+  });
+
+  // ── Form submission: inject accumulated files (multi mode) into a hidden
+  //    real <input> right before submit, since selectedFiles lives in JS
+  //    memory, not in any single <input> element until now. ────────────────
+  document.querySelector('form').addEventListener('submit', (e) => {
+    if (uploadMode === 'multi') {
+      if (selectedFiles.length === 0) {
+        e.preventDefault();
+        alert('Please select at least one label image.');
+        return;
+      }
+      const dt = new DataTransfer();
+      selectedFiles.forEach(f => dt.items.add(f));
+
+      // Create a real submittable input carrying the accumulated files
+      let hiddenInput = document.getElementById('imagesSubmitInput');
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'file';
+        hiddenInput.id = 'imagesSubmitInput';
+        hiddenInput.name = 'label_images';
+        hiddenInput.multiple = true;
+        hiddenInput.style.display = 'none';
+        e.target.appendChild(hiddenInput);
+      }
+      hiddenInput.files = dt.files;
+    } else {
+      // zip mode — make sure a zip was actually chosen
+      const zipInput = document.getElementById('zipInput');
+      if (!zipInput.files.length) {
+        e.preventDefault();
+        alert('Please select a .zip file of label images.');
+        return;
+      }
     }
   });
 </script>

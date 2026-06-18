@@ -1,0 +1,2 @@
+filename,status,issues_found
+WheatBeer.png,NEEDS REVIEW,"Class Type: Label shows ""WHEAT BEER"" which partially overlaps with application value ""Beer"" — one may be a substring of the other. Needs a manual look to confirm."

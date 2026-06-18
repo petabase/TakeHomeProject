@@ -61,18 +61,38 @@ The brief explicitly states that part of the evaluation is completing the assign
 2. **Application data arrives as a CSV, not a live COLA integration.** Marcus's interview notes were explicit that COLA integration is its own project with its own authorization requirements and years away from this prototype. A CSV is the most realistic stand-in for "data that already exists digitally" without building a mock database.
 3. **Government Warning validation uses the exact statutory wording** (27 CFR 16.21). Per Jenny's notes, this check is treated as strict and near-exact — minor case/punctuation drift is downgraded to a review flag rather than an automatic pass, since real-world label evasion (title case, reworded text, tiny fonts) is exactly what this field needs to catch.
 4. **Brand name and class/type matching is deliberately lenient.** Dave's "STONE'S THROW" vs "Stone's Throw" example is treated as the same value — fuzzy/normalized matching is applied so a compliant label isn't rejected over capitalization.
-5. **Confidence is per-field, not a single headline percentage.** An early version of this tool displayed an averaged "80% confidence" banner that diluted an outright brand-name mismatch into a number that looked reassuring. The verdict (PASS/FAIL/NEEDS REVIEW) is now the headline; per-field percentages only appear where they're diagnostic, not as a misleading summary statistic.
+5. **Confidence is per-field, not a single headline percentage.** The verdict (PASS/FAIL/NEEDS REVIEW) is the headline; per-field confidence percentages only appear in the detail view, where they explain *why* a specific field didn't cleanly confirm.
 6. **No authentication, no persistent storage.** This is an open prototype for evaluation, not a production deployment behind TTB's identity system. Nothing is written to disk or a database between requests.
 
 ## Constraints, design decisions, and trade-offs
 
-**Outbound network access is a single, predictable path — not eliminated entirely.** Marcus's interview notes describe a prior scanning-vendor pilot where outbound calls to ML endpoints were blocked by TTB's firewall, breaking the tool. The architectural response here is that the *browser* never makes an outbound AI call — only the FastAPI server does, to one domain (`generativelanguage.googleapis.com`). That's a meaningfully smaller and more predictable surface for a network team to allowlist than a tool making client-side calls to arbitrary ML endpoints, but it is a real outbound dependency, not a fully air-gapped one. A fully local OCR pipeline (e.g., Tesseract running on-box) would eliminate the dependency entirely at the cost of materially worse accuracy on real-world label photos — angled shots, glare, stylized fonts — which Tesseract handles poorly without heavy preprocessing. Given that the stated stretch goal explicitly asks for tolerance of imperfect photos, the trade was made deliberately in favor of a vision model over a fully local pipeline, accepting one well-defined outbound dependency in exchange for meaningfully better real-world accuracy.
+Four decisions shaped this build more than any others. Each ties back to specific stakeholder feedback from the interview notes.
 
-**Asymmetric matching strategy, by design.** The comparison logic does not apply the same tolerance to every field, because the two ends of the spectrum have opposite failure modes. Brand name and class/type use lenient, normalized matching — directly per Dave's feedback that case and punctuation differences shouldn't fail an otherwise-correct label. The Government Warning uses strict, near-exact matching — directly per Jenny's feedback that this is the field people try to evade, and a "smart" fuzzy match here would risk waving through a title-cased or reworded warning that should be rejected. A single fuzzy-match-everything approach would either reject valid brands or accept doctored warnings; treating fields asymmetrically is the only approach that serves both real failure modes correctly.
+### 🔌 One outbound dependency, not zero
 
-**No separate frontend framework.** The brief leaves technology choice open, and the UI requirement — "something my mother could figure out" — argues for simplicity over sophistication. Jinja2 server-rendered templates plus HTMX cover every interaction this tool needs (file upload, drag-and-drop, a results table) without a Node build step, a separate frontend deployment, or a second language in the stack. This also means the entire application is one Python service, which simplifies both local setup and the Hugging Face Spaces deployment.
+Marcus's notes describe a prior vendor pilot where the firewall blocked outbound calls to ML endpoints, breaking half the tool's features.
 
-**Confidence percentages are diagnostic, not a verdict.** Gemini self-rates how clearly it read each field (0-100), and that's blended with a rule-based match score — but a clean field-value mismatch is always reported as 0% confidence regardless of how crisply the (wrong) text was photographed, because the percentage answers "how confident are we this field is correct," not "how clear was the photo." This was a direct fix after testing surfaced a case where an obvious, certain brand-name mismatch was diluted by other matching fields into a misleadingly reassuring 80%.
+**The fix:** only the FastAPI server calls Gemini — never the browser. One predictable domain (`generativelanguage.googleapis.com`) to allowlist, not an open set of client-side ML calls.
+
+**The trade-off:** this is not a fully air-gapped solution. A local OCR pipeline (e.g. Tesseract) would remove the dependency entirely, but handles real-world label photos — angles, glare, stylized fonts — noticeably worse. Since the brief's stretch goal explicitly asks for tolerance of imperfect photos, accuracy won the trade.
+
+### ⚖️ Asymmetric matching, on purpose
+
+Dave needs brand names to forgive case/punctuation differences (`STONE'S THROW` vs `Stone's Throw`). Jenny needs the Government Warning to forgive nothing — people actively try to evade it with title case, reworded text, or tiny fonts.
+
+**The fix:** lenient, normalized matching for brand/class fields; strict, near-exact matching for the warning. One fuzzy-match-everything rule would fail one of these two requirements no matter how it's tuned — so the strictness is asymmetric by design, not an oversight.
+
+### 🖥️ No frontend framework
+
+The brief leaves the stack open, and the UX bar is explicit: *"something my mother could figure out."*
+
+**The fix:** Jinja2 server-rendered templates + HTMX. No Node build step, no separate frontend deploy, no second language. One Python service end to end — simpler to run locally and simpler to deploy to Hugging Face Spaces.
+
+### 📊 Confidence explains, it doesn't summarize
+
+A single blended "overall confidence" number averages across fields — which means one outright mismatch can get masked by several unrelated matches into a falsely reassuring score.
+
+**The fix:** the verdict (PASS / FAIL / NEEDS REVIEW) is the headline. Confidence percentages live only at the field level, where they answer a real question — *why* didn't this field confirm — instead of pretending to summarize the whole label in one misleading number.
 
 ## Project structure
 
@@ -105,12 +125,10 @@ TakeHomeProject/
 
 ## Limitations and roadmap
 
-**Imperfect photos.** Gemini Vision is materially more tolerant of angled or poorly-lit photos than a traditional OCR pipeline would be, but heavy distortion, severe glare, or extreme blur can still produce an UNREADABLE result requiring a re-shoot — the same outcome an agent would reach today.
-
-**Field coverage.** The current field set (brand name, class/type, ABV, net contents, Government Warning) covers the common case described in the brief. Less common label elements — bottler/producer name and address, country of origin for imports, sulfite declarations — are not yet extracted or compared.
-
-**Not COLA-integrated.** This is explicitly a standalone proof-of-concept per Marcus's notes, with no authentication, no audit log, and no connection to the live COLA system. Those are the obvious next steps for a production path, not gaps in this prototype's scope.
-
-**Batch throughput is bounded by Gemini's free-tier rate limit** (15 requests/minute), so a full 300-image batch takes several minutes rather than completing instantly. A production deployment with a paid API tier would remove this ceiling.
-
-**No automated test suite yet.** A synthetic label generator (`scripts/generate_test_labels.py`) produces labels with known ground truth for manual testing, but there is currently no `pytest` suite or CI gate exercising the matching logic automatically — a natural next addition.
+| Limitation | Why it exists | What lifts it |
+|---|---|---|
+| **Heavily distorted photos** can still come back UNREADABLE | Gemini Vision tolerates angles, glare, and poor lighting far better than traditional OCR, but extreme cases still defeat it | A re-shoot — the same fallback an agent uses today |
+| **Field coverage is the common case** — brand, class/type, ABV, net contents, Government Warning | Matches the fields described in the brief | Extend the prompt + comparison logic for bottler/producer address, country of origin, sulfite declarations |
+| **Not COLA-integrated** — no auth, no audit log, no live system connection | Explicitly a standalone proof-of-concept per Marcus's notes; COLA integration is its own project | Out of scope by design, not a gap — the natural next step for a production path |
+| **Batch throughput capped** at Gemini's free-tier rate limit (15 req/min) — a 300-image batch takes several minutes | Free tier keeps the prototype at zero cost | A paid API tier removes the ceiling entirely |
+| **No automated test suite** | `scripts/generate_test_labels.py` generates labels with known ground truth for manual testing, but nothing runs them automatically yet | A `pytest` suite + CI gate over the matching logic — the natural next addition |
