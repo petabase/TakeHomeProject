@@ -1,0 +1,15 @@
+filename,brand_name,class_type,abv,net_contents,government_warning
+contract_brewing_scenario1_dba__compliant.png,Example Brewing Co.,Wheat Beer,4% ALC./VOL.,1 PINT,true
+contract_brewing_scenario1_dba__compliant__angle.png,Example Brewing Co.,Wheat Beer,4% ALC./VOL.,1 PINT,true
+contract_brewing_scenario2_multiloc__compliant.png,Example Brewing Co.,Wheat Beer,4% ALC./VOL.,1 PINT,true
+contract_brewing_scenario3_two_locations__compliant.png,Example Brewing Co.,Wheat Beer,4% ALC./VOL.,1 PINT,true
+contract_brewing_scenario3_two_locations__compliant__glare.png,Example Brewing Co.,Wheat Beer,4% ALC./VOL.,1 PINT,true
+crowler__compliant.png,Milo's Ale,Beer,5% ALC/VOL,1 QT.,true
+crowler__compliant__angle.png,Milo's Ale,Beer,5% ALC/VOL,1 QT.,true
+crowler__noncompliant.png,Milo's Ale,Beer,5% ALC/VOL,1 QT.,true
+growler__compliant.png,Nene's Beer,Beer,4% ALC./VOL.,1 QT.,true
+growler__noncompliant.png,Nene's Beer,Beer,4% ALC./VOL.,1 QT.,true
+growler__noncompliant__blur.png,Nene's Beer,Beer,4% ALC./VOL.,1 QT.,true
+keg_collar__compliant.png,Example Brewing Co.,Axel Cream Ale,5%,15.5 GAL,true
+keg_collar__noncompliant.png,Example Brewing Co.,Axel Cream Ale,5%,15.5 GAL,true
+keg_collar__noncompliant__glare.png,Example Brewing Co.,Axel Cream Ale,5%,15.5 GAL,true
