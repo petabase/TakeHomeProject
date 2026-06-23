@@ -24,15 +24,15 @@ What this script does:
     3. Applies deliberate angle/blur/glare distortion to roughly half the
        images, so the resulting set tests both field-matching correctness
        AND image-quality tolerance
-    4. Writes metadata.csv (the application data each label SHOULD match)
-       and ground_truth.csv (expected PASS/FAIL outcome + TTB's own stated
+    4. Writes batch-metadata.csv (the application data each label SHOULD match)
+       and batch-results.csv (expected PASS/FAIL outcome + TTB's own stated
        reasoning, for verifying the app's output against)
     5. Zips the image folder for testing the app's batch .zip upload path
 
 Usage:
     python testcase-generator/extract_real_labels.py \\
         --pdf docs/malt-beverage-example-labels.pdf \\
-        --out test_data/real_labels
+        --out testcase/batchLabels
 
 Requires: pymupdf, Pillow (not in the main app's requirements.txt —
 install separately: pip install pymupdf pillow --break-system-packages)
@@ -84,11 +84,11 @@ APPLICATION_DATA = {
         "abv": "4% ALC./VOL.", "net_contents": "1 PINT",
     },
     "growler": {
-        "brand_name": "Nene's Beer", "class_type": "Beer",
+        "brand_name": "Malt & Hop Brewery", "class_type": "Beer",
         "abv": "4% ALC./VOL.", "net_contents": "1 QT.",
     },
     "crowler": {
-        "brand_name": "Milo's Ale", "class_type": "Beer",
+        "brand_name": "Example Brewing Company", "class_type": "Beer",
         "abv": "5% ALC/VOL", "net_contents": "1 QT.",
     },
     "keg_collar": {
@@ -282,8 +282,8 @@ def main():
     )
     parser.add_argument("--pdf", type=str, required=True,
                          help="Path to the source PDF (e.g. docs/malt-beverage-example-labels.pdf)")
-    parser.add_argument("--out", type=str, default="test_data/real_labels",
-                         help="Output directory (default: test_data/real_labels)")
+    parser.add_argument("--out", type=str, default="testcase/batchLabels",
+                         help="Output directory (default: testcase/batchLabels)")
     parser.add_argument("--seed", type=int, default=42,
                          help="Random seed for distortion reproducibility (default: 42)")
     args = parser.parse_args()
@@ -304,11 +304,11 @@ def main():
     print("Applying deliberate angle/blur/glare distortions to a subset ...")
     apply_distortions(images_dir)
 
-    print("Writing metadata.csv ...")
-    write_metadata_csv(images_dir, out_dir / "metadata.csv")
+    print("Writing batch-metadata.csv ...")
+    write_metadata_csv(images_dir, out_dir / "batch-metadata.csv")
 
-    print("Writing ground_truth.csv ...")
-    write_ground_truth_csv(images_dir, out_dir / "ground_truth.csv")
+    print("Writing batch-results.csv (ground truth) ...")
+    write_ground_truth_csv(images_dir, out_dir / "batch-results.csv")
 
     zip_path = out_dir / "ttb_real_labels_images.zip"
     print(f"Zipping images to {zip_path} ...")
@@ -318,8 +318,8 @@ def main():
 
     image_count = len(list(images_dir.glob("*.png")))
     print(f"\n✅ Done. {image_count} images in {images_dir}/")
-    print(f"   Upload metadata.csv + {zip_path.name} together to test the batch flow.")
-    print(f"   Compare app output against ground_truth.csv to verify correctness.")
+    print(f"   Upload batch-metadata.csv + {zip_path.name} together to test the batch flow.")
+    print(f"   Compare app output against batch-results.csv to verify correctness.")
 
 
 if __name__ == "__main__":

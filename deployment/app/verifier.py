@@ -16,15 +16,54 @@ from app.models import (
 load_dotenv()
 
 # ── Gemini setup ──────────────────────────────────────────────────────────────
+# Use client.aio.models.generate_content() for async calls — this is
+# awaitable so the event loop can properly interleave the rate-limit sleep
+# between requests. client.models.generate_content() is synchronous and
+# blocks the whole event loop, making asyncio.sleep() ineffective.
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # ── Batch tuning ───────────────────────────────────────────────────────────────
-# Free-tier Gemini Flash allows 15 requests/minute. We cap concurrency well
-# below that so a 300-image batch doesn't immediately exhaust the per-minute
-# quota and start failing requests outright.
+# Free-tier Gemini Flash: 15 requests/minute = 1 every 4 seconds.
+# We serialize all Gemini calls through a lock with a 4.5s sleep after each
+# one, so the effective rate is 1 request per 4.5s regardless of concurrency.
+# This keeps a 14-image batch comfortably under the ceiling even if Gemini
+# responds instantly. Total batch time: 14 × 4.5s ≈ 63s.
+# If a 429 still occurs (quota used by prior runs in the same minute window),
+# affected rows are marked ERROR with a plain-English message — no silent retries.
 MAX_BATCH_SIZE = 300
-MAX_CONCURRENT_REQUESTS = 5
+MAX_CONCURRENT_REQUESTS = 10  # high value — rate limiter below is the real throttle
+
+REQUEST_INTERVAL_SECONDS = 4.5
+
+# Shared lock serialises all Gemini calls; sleep inside the lock enforces spacing
+_request_lock = asyncio.Lock()
+
+
+async def _rate_limited_call(image_part, prompt) -> object:
+    """Call Gemini with guaranteed minimum spacing between requests.
+
+    The asyncio.Lock serialises all calls so only one runs at a time.
+    The sleep AFTER the call (while still holding the lock) ensures the
+    next caller waits the full interval — giving us exactly 1 request
+    per REQUEST_INTERVAL_SECONDS regardless of Gemini's response time.
+    Using client.aio.models.generate_content() is critical — the
+    sync version blocks the event loop and the sleep never fires.
+    """
+    async with _request_lock:
+        response = await client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[prompt, image_part]
+        )
+        await asyncio.sleep(REQUEST_INTERVAL_SECONDS)
+        return response
+
+QUOTA_EXCEEDED_MESSAGE = (
+    "Gemini API free-tier quota exceeded (15 requests/minute). "
+    "This label was skipped — wait 60 seconds and re-run the batch, "
+    "or split it into smaller batches. This is a known free-tier limit, "
+    "not a bug. See testcase/README.md for details."
+)
 
 # ── Exact statutory Government Warning text (27 CFR 16.21) ───────────────────
 GOVERNMENT_WARNING = (
@@ -200,14 +239,37 @@ def _compare_field(
     )
 
 
+# Fields with confidence_pct at or above this threshold auto-pass even if
+# their match required normalization (case/punctuation differences) — per
+# Dave's interview feedback that "STONE'S THROW" vs "Stone's Throw" shouldn't
+# stop an otherwise-correct label. Below this threshold (e.g. a partial/
+# substring match), the field still routes to NEEDS REVIEW since the
+# comparison itself is genuinely uncertain, not just a formatting quirk.
+AUTO_PASS_CONFIDENCE_THRESHOLD = 75
+
+
 def _overall_status(fields: list[FieldResult]) -> str:
-    """Derive overall pass/fail/review from field results."""
-    confidences = [f.confidence for f in fields]
-    if any(c == ConfidenceLevel.NEEDS_REVIEW for c in confidences):
+    """Derive overall pass/fail/review from field results.
+
+    NEEDS_REVIEW tier is always a hard fail — these are real value
+    mismatches or exact-match-required fields (Government Warning) that
+    failed. LIKELY tier is only escalated to NEEDS REVIEW if its confidence
+    is below the auto-pass threshold; a high-confidence normalized match
+    (e.g. case/punctuation only) is treated as a pass.
+    """
+    if any(f.confidence == ConfidenceLevel.NEEDS_REVIEW for f in fields):
         return "FAIL"
-    if any(c in (ConfidenceLevel.LIKELY, ConfidenceLevel.UNREADABLE)
-           for c in confidences):
+
+    if any(f.confidence == ConfidenceLevel.UNREADABLE for f in fields):
         return "NEEDS REVIEW"
+
+    if any(
+        f.confidence == ConfidenceLevel.LIKELY
+        and f.confidence_pct < AUTO_PASS_CONFIDENCE_THRESHOLD
+        for f in fields
+    ):
+        return "NEEDS REVIEW"
+
     return "PASS"
 
 
@@ -223,39 +285,51 @@ async def verify_label(
     content_type: str,
     app_data: ApplicationData
 ) -> VerificationResult:
-    """Main entry point — send image to Gemini, compare to application data."""
+    """Main entry point — send image to Gemini, compare to application data.
+
+    On a 429 RESOURCE_EXHAUSTED (free-tier quota exceeded), returns a clean
+    user-facing error immediately rather than retrying — retrying would stall
+    the UI for 60+ seconds with no feedback. The caller sees an ERROR status
+    with an actionable message. See testcase/README.md for details.
+    """
     raw_text = None
     try:
-        # Encode image for Gemini
         image_part = types.Part.from_bytes(
             data=image_bytes,
             mime_type=content_type
         )
-
         prompt = _build_prompt(app_data)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[prompt, image_part]
-        )
+        response = await _rate_limited_call(image_part, prompt)
         raw_text = response.text.strip()
 
-        # Strip markdown fences if Gemini wraps in ```json
-        raw_text = re.sub(r"^```json\s*", "", raw_text)
-        raw_text = re.sub(r"\s*```$", "", raw_text)
+    except Exception as e:
+        error_str = str(e)
+        is_quota_error = (
+            "429" in error_str or
+            "RESOURCE_EXHAUSTED" in error_str or
+            "quota" in error_str.lower()
+        )
+        return VerificationResult(
+            overall_status="ERROR",
+            overall_confidence_pct=0,
+            fields=[],
+            error=QUOTA_EXCEEDED_MESSAGE if is_quota_error
+                  else f"Verification failed: {error_str}"
+        )
 
-        extracted = json.loads(raw_text)
+    # Parse Gemini's JSON response and compare fields
+    try:
+        clean_text = re.sub(r"^```json\s*", "", raw_text.strip())
+        clean_text = re.sub(r"\s*```$", "", clean_text)
+        extracted = json.loads(clean_text)
 
         def _get(field_name: str) -> tuple[str, int]:
-            """Pull {value, confidence} for a field, tolerating a plain string
-            fallback in case Gemini ever returns the old flat shape. Whitespace
-            (including embedded newlines Gemini sometimes inserts when reading
-            multi-line printed text) is collapsed to single spaces so the value
-            stays on one line everywhere downstream — on screen, in JSON, and
-            in CSV exports opened in Excel/Sheets/a database.
-            """
+            """Pull {value, confidence} tolerating old flat-string shape.
+            Embedded newlines are collapsed to single spaces so values stay
+            on one line in CSV exports opened in Excel/Sheets/a database."""
             raw = extracted.get(field_name, {"value": "UNREADABLE", "confidence": 0})
             if isinstance(raw, str):
-                value, confidence = raw, 50  # unknown confidence if model returned old shape
+                value, confidence = raw, 50
             else:
                 value = raw.get("value", "UNREADABLE")
                 confidence = int(raw.get("confidence", 0))
@@ -263,18 +337,18 @@ async def verify_label(
             return value, confidence
 
         gov_warning_expected = GOVERNMENT_WARNING if app_data.government_warning else "NOT REQUIRED"
-        gov_value, gov_conf = _get("government_warning")
+        gov_value, gov_conf   = _get("government_warning")
         brand_value, brand_conf = _get("brand_name")
         class_value, class_conf = _get("class_type")
-        abv_value, abv_conf = _get("abv")
-        net_value, net_conf = _get("net_contents")
+        abv_value, abv_conf   = _get("abv")
+        net_value, net_conf   = _get("net_contents")
 
         fields = [
-            _compare_field("brand_name", app_data.brand_name, brand_value, brand_conf),
-            _compare_field("class_type", app_data.class_type, class_value, class_conf),
-            _compare_field("abv", app_data.abv, abv_value, abv_conf),
-            _compare_field("net_contents", app_data.net_contents, net_value, net_conf),
-            _compare_field("government_warning", gov_warning_expected, gov_value, gov_conf),
+            _compare_field("brand_name",        app_data.brand_name,  brand_value, brand_conf),
+            _compare_field("class_type",         app_data.class_type,  class_value, class_conf),
+            _compare_field("abv",                app_data.abv,         abv_value,   abv_conf),
+            _compare_field("net_contents",       app_data.net_contents,net_value,   net_conf),
+            _compare_field("government_warning", gov_warning_expected, gov_value,   gov_conf),
         ]
 
         return VerificationResult(
@@ -373,7 +447,8 @@ async def _verify_one_batch_item(
     row: BatchRow,
     semaphore: asyncio.Semaphore
 ) -> BatchItemResult:
-    """Verify a single batch item, bounded by the concurrency semaphore."""
+    """Verify a single batch item. Rate limiting is handled inside
+    verify_label via _rate_limited_call — no per-item throttle needed here."""
     async with semaphore:
         app_data = ApplicationData(
             brand_name=row.brand_name,

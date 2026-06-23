@@ -124,10 +124,11 @@
     {# ── Single-label simplified view ───────────────────────────────────── #}
     {% set item = summary.items[0] %}
 
-    {% if item.error and not item.result %}
+    {% if item.status == "ERROR" %}
       <div class="card">
         <div class="error-list" style="color:#c62828; background:#ffebee; border-color:#ef9a9a">
-          <strong>⚠️ Verification error</strong><br>{{ item.error }}
+          <strong>⚠️ Verification error</strong><br>
+          {{ item.result.error if item.result and item.result.error else item.error or "Unknown error." }}
         </div>
       </div>
     {% else %}
@@ -150,6 +151,7 @@
 
       <div class="card">
         <h2>Field-by-field detail</h2>
+        {% if item.result and item.result.fields %}
         <table class="field-table">
           <thead>
             <tr><th>Field</th><th>Expected</th><th>Extracted</th><th>Confidence</th></tr>
@@ -173,6 +175,11 @@
             {% endfor %}
           </tbody>
         </table>
+        {% else %}
+        <div class="error-list">
+          {{ item.result.error if item.result and item.result.error else "No field detail available." }}
+        </div>
+        {% endif %}
       </div>
     {% endif %}
 
@@ -197,9 +204,11 @@
             <td><strong>{{ item.filename }}</strong></td>
             <td><span class="status-pill status-{{ item.status }}">{{ item.status }}</span></td>
             <td>
-              {% if item.error and not item.result %}
-                <span style="color:#c62828">{{ item.error }}</span>
-              {% elif item.result %}
+              {% if item.status == "ERROR" %}
+                <span style="color:#c62828">
+                  {{ item.result.error if item.result and item.result.error else item.error or "Unknown error." }}
+                </span>
+              {% elif item.result and item.result.fields %}
                 {% for f in item.result.fields %}
                   {% if f.confidence != "confirmed" %}
                     <div class="reason-text" style="margin-bottom:4px">
@@ -210,6 +219,8 @@
                 {% if item.status == "PASS" %}
                   <span style="color:#2e7d32; font-size:0.78rem">All fields confirmed</span>
                 {% endif %}
+              {% else %}
+                <span style="color:#888; font-size:0.78rem">No detail available.</span>
               {% endif %}
             </td>
           </tr>
