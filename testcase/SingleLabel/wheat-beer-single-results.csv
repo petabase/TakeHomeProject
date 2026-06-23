@@ -1,0 +1,2 @@
+filename,status,issues_found
+WheatBeer.png,PASS,"Brand Name: Label shows ""EXAMPLE BREWING CO."" vs application ""Example Brewing CO."" — matches after ignoring case/punctuation. Likely just a formatting difference, but worth a quick visual check. | Class Type: Label shows ""WHEAT BEER"" vs application ""Wheat Beer"" — matches after ignoring case/punctuation. Likely just a formatting difference, but worth a quick visual check."
