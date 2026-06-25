@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Verifier — Verifying...{% endblock %}
+
+{% block extra_styles %}
+.progress-card {
+  text-align: center;
+  padding: 2.5rem 2rem;
+}
+.progress-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a3a5c;
+  margin-bottom: 0.4rem;
+}
+.progress-sub {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+.progress-bar-track {
+  width: 100%;
+  height: 10px;
+  background: #e8edf3;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 0.6rem;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: #1a3a5c;
+  border-radius: 5px;
+  transition: width 0.4s ease;
+  width: 0%;
+}
+.progress-count {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 1.5rem;
+}
+.current-file {
+  font-size: 0.82rem;
+  color: #1a3a5c;
+  font-weight: 500;
+  background: #eef3f8;
+  border-radius: 6px;
+  padding: 0.5rem 0.85rem;
+  display: inline-block;
+  margin-bottom: 1rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid #d0d7e3;
+  border-top-color: #1a3a5c;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.live-tally {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  font-size: 0.82rem;
+}
+.tally-item { text-align: center; }
+.tally-num { font-size: 1.2rem; font-weight: 700; }
+.tally-pass .tally-num { color: #2e7d32; }
+.tally-fail .tally-num { color: #c62828; }
+.tally-review .tally-num { color: #f57f17; }
+.tally-error .tally-num { color: #616161; }
+.tally-label { font-size: 0.7rem; color: #999; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.error-list {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-size: 0.8rem;
+  color: #6d5300;
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+.error-list ul { margin-left: 1rem; margin-top: 0.4rem; }
+{% endblock %}
+
+{% block content %}
+
+{% if csv_errors %}
+<div class="error-list">
+  <strong>⚠️ Notes:</strong>
+  <ul>{% for err in csv_errors %}<li>{{ err }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="card progress-card" id="progressCard">
+  <div class="progress-title">
+    <span class="spinner"></span>
+    Verifying {{ total }} label{{ "s" if total != 1 else "" }}…
+  </div>
+  <div class="progress-sub" id="progressSub">
+    Please keep this tab open. Each label takes about 5–6 seconds.
+  </div>
+  <div class="progress-bar-track">
+    <div class="progress-bar-fill" id="progressBar"></div>
+  </div>
+  <div class="progress-count" id="progressCount">0 / {{ total }}</div>
+  <div class="current-file" id="currentFile">Starting…</div>
+
+  <div class="live-tally">
+    <div class="tally-item tally-pass">
+      <div class="tally-num" id="tallyPass">0</div>
+      <div class="tally-label">Passed</div>
+    </div>
+    <div class="tally-item tally-fail">
+      <div class="tally-num" id="tallyFail">0</div>
+      <div class="tally-label">Failed</div>
+    </div>
+    <div class="tally-item tally-review">
+      <div class="tally-num" id="tallyReview">0</div>
+      <div class="tally-label">Review</div>
+    </div>
+    <div class="tally-item tally-error">
+      <div class="tally-num" id="tallyError">0</div>
+      <div class="tally-label">Errors</div>
+    </div>
+  </div>
+</div>
+
+<!-- Result rendered here after SSE stream completes -->
+<div id="resultContainer"></div>
+
+<script>
+  const JOB_ID   = "{{ job_id }}";
+  const TOTAL    = {{ total }};
+  const IS_SINGLE = {{ "true" if is_single else "false" }};
+  let passed = 0, failed = 0, review = 0, errors = 0;
+
+  function updateTally(status) {
+    if (status === "PASS")          { passed++;  document.getElementById("tallyPass").textContent = passed; }
+    else if (status === "FAIL")     { failed++;  document.getElementById("tallyFail").textContent = failed; }
+    else if (status === "NEEDS REVIEW") { review++; document.getElementById("tallyReview").textContent = review; }
+    else                            { errors++;  document.getElementById("tallyError").textContent = errors; }
+  }
+
+  function updateProgress(done, filename) {
+    const pct = Math.round((done / TOTAL) * 100);
+    document.getElementById("progressBar").style.width = pct + "%";
+    document.getElementById("progressCount").textContent = done + " / " + TOTAL;
+    if (filename) document.getElementById("currentFile").textContent = "✓ " + filename;
+  }
+
+  function showProcessing(filename) {
+    document.getElementById("currentFile").textContent = "⏳ " + filename;
+  }
+
+  const es = new EventSource("/verify/progress/" + JOB_ID);
+
+  es.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+
+    if (data.error) {
+      document.getElementById("progressCard").innerHTML =
+        '<div class="error-list" style="color:#c62828;background:#ffebee;border-color:#ef9a9a">' +
+        '<strong>⚠️ Error:</strong><br>' + data.error + '</div>';
+      es.close();
+      return;
+    }
+
+    if (data.type === "processing") {
+      showProcessing(data.filename);
+      document.getElementById("progressSub").textContent =
+        "Processing " + (data.index + 1) + " of " + data.total + "…";
+    }
+
+    if (data.type === "result") {
+      updateTally(data.item.status);
+      updateProgress(data.index + 1, data.item.filename);
+    }
+
+    if (data.type === "done") {
+      es.close();
+      document.getElementById("progressCard").innerHTML =
+        '<div class="progress-title">✅ Done — ' + TOTAL + ' label' + (TOTAL !== 1 ? 's' : '') + ' processed</div>' +
+        '<div class="progress-sub">Scroll down to see the full results.</div>';
+
+      // Render the result table by posting summary to the result fragment endpoint
+      const summary = data.summary;
+      fetch("/render_result", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({summary: summary, is_single: IS_SINGLE})
+      })
+      .then(r => r.text())
+      .then(html => {
+        document.getElementById("resultContainer").innerHTML = html;
+      });
+    }
+  };
+
+  es.onerror = function() {
+    es.close();
+    document.getElementById("currentFile").textContent = "Connection lost — please refresh the page.";
+  };
+</script>
+{% endblock %}
