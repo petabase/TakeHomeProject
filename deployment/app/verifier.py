@@ -36,8 +36,17 @@ MAX_CONCURRENT_REQUESTS = 10  # high value — rate limiter below is the real th
 
 REQUEST_INTERVAL_SECONDS = 4.5
 
-# Shared lock serialises all Gemini calls; sleep inside the lock enforces spacing
-_request_lock = asyncio.Lock()
+# Shared lock — created lazily inside the running event loop, not at import
+# time. Creating asyncio.Lock() at module level binds it to the wrong loop
+# on Python 3.10+ and causes silent failures where the lock never blocks.
+_request_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    global _request_lock
+    if _request_lock is None:
+        _request_lock = asyncio.Lock()
+    return _request_lock
 
 
 async def _rate_limited_call(image_part, prompt) -> object:
@@ -45,12 +54,11 @@ async def _rate_limited_call(image_part, prompt) -> object:
 
     The asyncio.Lock serialises all calls so only one runs at a time.
     The sleep AFTER the call (while still holding the lock) ensures the
-    next caller waits the full interval — giving us exactly 1 request
-    per REQUEST_INTERVAL_SECONDS regardless of Gemini's response time.
-    Using client.aio.models.generate_content() is critical — the
-    sync version blocks the event loop and the sleep never fires.
+    next caller waits the full interval before the lock is released.
+    client.aio.models.generate_content() is a true coroutine so the
+    event loop can actually yield and run the sleep between requests.
     """
-    async with _request_lock:
+    async with _get_lock():
         response = await client.aio.models.generate_content(
             model=GEMINI_MODEL,
             contents=[prompt, image_part]
