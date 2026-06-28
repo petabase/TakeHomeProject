@@ -21,20 +21,19 @@ load_dotenv()
 # between requests. client.models.generate_content() is synchronous and
 # blocks the whole event loop, making asyncio.sleep() ineffective.
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"  # 15 RPM free tier (flash is only 10 RPM)
 
 # ── Batch tuning ───────────────────────────────────────────────────────────────
-# Free-tier Gemini Flash: 15 requests/minute = 1 every 4 seconds.
-# We serialize all Gemini calls through a lock with a 4.5s sleep after each
-# one, so the effective rate is 1 request per 4.5s regardless of concurrency.
-# This keeps a 14-image batch comfortably under the ceiling even if Gemini
-# responds instantly. Total batch time: 14 × 4.5s ≈ 63s.
+# gemini-2.5-flash-lite free tier: 15 RPM = 1 request every 4 seconds.
+# We serialize all Gemini calls through a lock with a 4.2s sleep after each
+# one, staying comfortably under the ceiling with a small margin.
+# Total batch time for 14 images: 14 × 4.2s ≈ 59s.
 # If a 429 still occurs (quota used by prior runs in the same minute window),
 # affected rows are marked ERROR with a plain-English message — no silent retries.
 MAX_BATCH_SIZE = 300
-MAX_CONCURRENT_REQUESTS = 10  # high value — rate limiter below is the real throttle
+MAX_CONCURRENT_REQUESTS = 10  # rate limiter below is the real throttle
 
-REQUEST_INTERVAL_SECONDS = 4.5
+REQUEST_INTERVAL_SECONDS = 4.2
 
 # Shared lock — created lazily inside the running event loop, not at import
 # time. Creating asyncio.Lock() at module level binds it to the wrong loop
