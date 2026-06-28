@@ -19,7 +19,7 @@ An agent provides a CSV with the application data already in it (brand name, cla
 
 Each label image is sent to Google Gemini Vision, which reads what's actually printed on the label as structured text. Every field is then compared against the submitted application data using exact, normalized, and fuzzy matching, and the agent receives a clear verdict per label: **PASS**, **FAIL**, or **NEEDS REVIEW**, with a plain-language reason for every field that didn't cleanly confirm. Results can be exported as a CSV — one row per label — for recordkeeping.
 
-A single-label check is simply a one-row CSV under the hood — there's no separate "batch mode" to learn; the same form and the same logic handle one label or three hundred.
+A single-label check is simply a one-row CSV under the hood — there's no separate "batch mode" to learn; the same form and the same logic handle one label or three hundred. For batch runs, a live progress page shows each label as it's processed, with a running tally, so the agent is never staring at a blank screen.
 
 ## Architecture
 
@@ -27,10 +27,10 @@ A single-label check is simply a one-row CSV under the hood — there's no separ
 flowchart TD
     A["Browser<br/>HTML + HTMX<br/>drag-and-drop CSV + images"]
     B["FastAPI server<br/>deployment/app/main.py<br/>parses CSV → rows, pairs each row<br/>to its image by filename (case-insensitive);<br/>zip uploads unpacked server-side"]
-    C["verifier.py<br/>builds a prompt per image,<br/>calls Gemini Vision — server-side only"]
-    D["Google Gemini API<br/>gemini-2.5-flash<br/>returns structured JSON: field value<br/>+ self-rated read confidence"]
+    C["verifier.py<br/>builds a prompt per image,<br/>calls Gemini Vision — server-side only<br/>rate-limited to 1 req/4.2s via async lock"]
+    D["Google Gemini API<br/>gemini-2.5-flash-lite<br/>returns structured JSON: field value<br/>+ self-rated read confidence"]
     E["Field comparison logic<br/>exact → normalized → fuzzy,<br/>asymmetric per field"]
-    F["batch_result.html<br/>PASS / FAIL / NEEDS REVIEW verdict<br/>+ per-field reasons"]
+    F["progress.html → batch_result.html<br/>live SSE progress bar per label,<br/>then PASS / FAIL / NEEDS REVIEW verdict"]
     G["CSV export<br/>one row per label,<br/>issues-only detail column"]
 
     A -->|"POST /verify<br/>multipart: CSV + images, or CSV + .zip"| B
@@ -82,6 +82,8 @@ Dave needs brand names to forgive case/punctuation differences (`STONE'S THROW` 
 
 **The fix:** lenient, normalized matching for brand/class fields; strict, near-exact matching for the warning. One fuzzy-match-everything rule would fail one of these two requirements no matter how it's tuned — so the strictness is asymmetric by design, not an oversight.
 
+A normalized match doesn't automatically mean "needs a human" either — a field that matches once case/punctuation is normalized auto-passes when its confidence is **75% or higher**; only genuinely uncertain matches (partial/substring overlaps, typically below that line) get routed to NEEDS REVIEW.
+
 ### 🖥️ No frontend framework
 
 The brief leaves the stack open, and the UX bar is explicit: *"something my mother could figure out."*
@@ -94,6 +96,10 @@ A single blended "overall confidence" number averages across fields — which me
 
 **The fix:** the verdict (PASS / FAIL / NEEDS REVIEW) is the headline. Confidence percentages live only at the field level, where they answer a real question — *why* didn't this field confirm — instead of pretending to summarize the whole label in one misleading number.
 
+### ⚡ Batch throughput: async rate-limited pipeline
+
+Gemini's free tier for `gemini-2.5-flash-lite` allows 15 requests/minute (the standard `gemini-2.5-flash` is capped lower at 10 RPM). All Gemini calls are serialised through an asyncio lock with a 4.2-second sleep after each call, giving a sustained rate of ~14 req/min — comfortably under the ceiling. A live Server-Sent Events (SSE) progress stream keeps the agent informed as each label completes rather than showing a blank waiting screen.
+
 ## Project structure
 
 ```
@@ -103,13 +109,15 @@ TakeHomeProject/
 ├── README.md                   # this file
 ├── deployment/                 # the application itself (see deployment/README.md)
 │   ├── app/
-│   │   ├── main.py             # FastAPI routes: /, /verify, /export, /template.csv, /health
-│   │   ├── verifier.py         # Gemini Vision calls, CSV parsing, batch orchestration, matching logic
+│   │   ├── main.py             # FastAPI routes + SSE streaming /verify/progress/{job_id}
+│   │   ├── verifier.py         # Gemini Vision calls, rate limiter, CSV parsing, matching logic
 │   │   ├── models.py           # Pydantic schemas (ApplicationData, FieldResult, BatchSummary, etc.)
 │   │   └── templates/
 │   │       ├── base.html          # shared layout, header, CSS, HTMX script tag
 │   │       ├── index.html         # unified upload form: CSV + images (multi-select
 │   │       │                      #   w/ removable file list) or CSV + .zip for large batches
+│   │       ├── progress.html      # live SSE progress bar — shown while batch runs,
+│   │       │                      #   updates per label with running PASS/FAIL/ERROR tally
 │   │       └── batch_result.html  # single-label card or batch table from the same data,
 │   │                              #   plus the CSV export form
 │   ├── Dockerfile
@@ -127,11 +135,14 @@ TakeHomeProject/
 │   ├── SingleLabel/
 │   │   ├── WheatBeer.png
 │   │   ├── wheat-beer-single-meta.csv
-│   │   └── wheat-beer-single-results.csv
+│   │   ├── wheat-beer-single-results.csv
+│   │   └── SingleLabel-result-screenshot.png  # reference screenshot
 │   ├── batchLabels/
-│   │   ├── ttb_real_labels_images.zip   # 14 real TTB label images
+│   │   ├── ttb_real_labels_images.zip         # 14 real TTB label images
 │   │   ├── batch-metadata.csv
-│   │   └── batch-results.csv            # ground-truth expected output
+│   │   ├── batch-results.csv                  # ground-truth expected output
+│   │   ├── BatchLabels-result-screenshot.png  # reference screenshot
+│   │   └── Progress-on-batch-process.png      # progress bar screenshot
 │   └── README.md                  # how to run both test cases
 ├── docs/
 │   ├── TreasuryInstructions.md     # the original take-home brief
@@ -147,7 +158,7 @@ TakeHomeProject/
 | **Heavily distorted photos** can still come back UNREADABLE | Gemini Vision tolerates angles, glare, and poor lighting far better than traditional OCR, but extreme cases still defeat it | A re-shoot — the same fallback an agent uses today |
 | **Field coverage is the common case** — brand, class/type, ABV, net contents, Government Warning | Matches the fields described in the brief | Extend the prompt + comparison logic for bottler/producer address, country of origin, sulfite declarations |
 | **Not COLA-integrated** — no auth, no audit log, no live system connection | Explicitly a standalone proof-of-concept per Marcus's notes; COLA integration is its own project | Out of scope by design, not a gap — the natural next step for a production path |
-| **Batch throughput capped** at Gemini's free-tier rate limit (15 req/min) — a 300-image batch takes several minutes | Free tier keeps the prototype at zero cost | A paid API tier removes the ceiling entirely |
+| **Batch throughput ~14 req/min** on Gemini free tier — a 14-image batch takes ~60s, a 300-image batch takes ~21 minutes | Free tier (`gemini-2.5-flash-lite`, 15 RPM) keeps the prototype at zero cost | A paid API tier removes the ceiling entirely |
 | **No automated test suite** | `testcase-generator/` produces both real (TTB-sourced) and synthetic labels with known ground truth; ready-to-upload output lives in `testcase/`, but nothing runs it automatically yet | A `pytest` suite + CI gate that runs `testcase/batchLabels/` through the matching logic and asserts against `batch-results.csv` — the natural next addition |
 
 ## Testing

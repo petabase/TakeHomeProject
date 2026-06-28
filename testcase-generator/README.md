@@ -12,28 +12,28 @@ This is the strongest ground truth available: these are TTB's own published comp
 pip install pymupdf pillow --break-system-packages
 python testcase-generator/extract_real_labels.py \
     --pdf docs/malt-beverage-example-labels.pdf \
-    --out test_data/real_labels
+    --out testcase/batchLabels
 ```
 
 Produces:
 ```
-test_data/real_labels/
+testcase/batchLabels/
 ├── images/                      # 14 PNGs: 9 clean crops + 5 distorted variants
-├── metadata.csv                 # application data each label should match
-├── ground_truth.csv             # expected PASS/FAIL + TTB's own stated reasoning
+├── batch-metadata.csv           # application data each label should match
+├── batch-results.csv            # expected PASS/FAIL + TTB's own stated reasoning (ground truth)
 └── ttb_real_labels_images.zip   # the images/ folder, pre-zipped for batch upload
 ```
 
 **Why some images are distorted:** roughly a third of the set has deliberate angle rotation, gaussian blur, or a simulated glare patch applied — testing image-quality tolerance, not just field-matching correctness, since Jenny's interview notes specifically called out imperfectly-photographed labels as a real-world condition. The distortion plan deliberately covers both compliant and non-compliant labels, so a distorted defect still needs to be caught, and a distorted compliant label shouldn't be wrongly flagged.
 
-**To verify the app's output:** upload `metadata.csv` + `ttb_real_labels_images.zip` through the app's batch flow, export the results CSV, and compare each row's status against `ground_truth.csv`'s `expected_outcome` column.
+**To run this test case and verify the app's output**, see [`testcase/README.md`](../testcase/README.md) — it walks through uploading `batch-metadata.csv` + `ttb_real_labels_images.zip` and comparing the exported results against `batch-results.csv`.
 
 ## 2. Synthetic labels with known ground truth — `generate_synthetic_labels.py`
 
 Programmatically draws label images with Pillow, where every field value is set by the script itself — useful for generating a larger or more varied test set on demand, or for isolating a single defect type (e.g. only Government Warning case errors) without depending on what TTB happened to publish examples of.
 
 ```bash
-python testcase-generator/generate_synthetic_labels.py --count 12 --out test_data/synthetic
+python testcase-generator/generate_synthetic_labels.py --count 12 --out testcase/synthetic
 ```
 
 See the script's own docstring for the full defect-type list and usage options.
